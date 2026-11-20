@@ -31,7 +31,7 @@ class MainActivity : ComponentActivity() {
     private val main = Handler(Looper.getMainLooper())
     private var paused = false
     private val updateCheck = object : Runnable {
-        override fun run() { bridge.checkForUpdate(); main.postDelayed(this, 30 * 60_000L) }
+        override fun run() { bridge.checkForUpdate(); main.postDelayed(this, 10 * 60_000L) }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -76,7 +76,7 @@ class MainActivity : ComponentActivity() {
             }
         })
         bridge.pingInstall()
-        main.postDelayed(updateCheck, 8_000L)
+        main.postDelayed(updateCheck, 10 * 60_000L) // the launch check is started by the game's loading screen
     }
 
     private fun hideSystemBars() {
@@ -104,6 +104,7 @@ class MainActivity : ComponentActivity() {
         paused = false
         web.onResume()
         hideSystemBars()
+        bridge.onResume()
     }
 
     override fun onDestroy() {

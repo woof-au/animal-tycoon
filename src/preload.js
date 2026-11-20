@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('woof', {
   },
   open: (url) => ipcRenderer.invoke('open', url),
   copy: (text) => ipcRenderer.invoke('copy', text),
+  checkForUpdate: () => ipcRenderer.invoke('update:check'),
   onUpdate: (cb) => ipcRenderer.on('update', (_e, u) => cb(u)),
   restartToUpdate: () => ipcRenderer.send('update:restart'),
   onQuit: (cb) => ipcRenderer.on('quit', () => cb()),

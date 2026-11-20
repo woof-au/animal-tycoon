@@ -757,17 +757,65 @@ window.__woofBack = () => {
 // =====================================================================================================
 //  Updates (Windows/Mac: downloads in the background; Android: downloads, then one tap to install)
 // =====================================================================================================
-let updateInfo = null;
+// Updates are forced. At launch the loading screen waits for the new version (see boot); while playing, a downloaded
+// update saves the game and restarts it after a short countdown.
+let updateInfo = null, bootUpdate = null, restartTimer = null;
+const pctText = (u) => (Number.isFinite(u.percent) ? ` ${u.percent}%` : '');
 bridge.onUpdate?.((u) => {
-  const box = $('update'); updateInfo = u;
-  if (u.state === 'downloading') { box.hidden = false; $('update-text').textContent = u.message || `⬇ Downloading update ${u.version || ''}…`; $('update-now').hidden = true; }
-  if (u.state === 'ready') { box.hidden = false; $('update-text').textContent = u.message || `✨ Update ${u.version || ''} is ready — it installs when you close the game.`; $('update-now').textContent = u.button || 'Restart now'; $('update-now').hidden = false; }
-  if (u.state === 'manual') { box.hidden = false; $('update-text').textContent = u.message || `✨ Animal Tycoon ${u.version || ''} is available.`; $('update-now').textContent = u.button || 'Download'; $('update-now').hidden = false; }
+  updateInfo = u;
+  if (bootUpdate) return bootUpdate(u); // the loading screen is showing the update
+  const box = $('update');
+  if (u.state === 'downloading') { box.hidden = false; $('update-text').textContent = u.message || `⬇ Downloading update ${u.version || ''}…${pctText(u)}`; $('update-now').hidden = true; }
+  if (u.state === 'ready') {
+    box.hidden = false; $('update-now').textContent = 'Update now'; $('update-now').hidden = false;
+    let left = 10;
+    const tickDown = () => { $('update-text').textContent = `✨ Animal Tycoon ${u.version || ''} is ready — saving and updating in ${left}s…`; if (left-- <= 0) installUpdate(); };
+    clearInterval(restartTimer); tickDown(); restartTimer = setInterval(tickDown, 1000);
+  }
+  if (u.state === 'installing') { box.hidden = false; $('update-text').textContent = `✨ Installing Animal Tycoon ${u.version || ''}…`; $('update-now').hidden = true; }
+  if (u.state === 'permission' || u.state === 'manual') { box.hidden = false; $('update-text').textContent = u.message || `✨ Animal Tycoon ${u.version || ''} is available.`; $('update-now').textContent = u.button || 'Download'; $('update-now').hidden = false; }
 });
-$('update-now').onclick = async () => {
+async function installUpdate() {
+  clearInterval(restartTimer); $('update-now').hidden = true; $('update-text').textContent = '💾 Saving your game…';
+  await Promise.race([syncNow(true), new Promise((r) => setTimeout(r, 5000))]);
+  $('update-text').textContent = `✨ Installing Animal Tycoon ${updateInfo?.version || ''}…`;
+  bridge.restartToUpdate();
+}
+$('update-now').onclick = () => {
   if (updateInfo?.state === 'manual') return bridge.open(updateInfo.url || 'https://woof-services.stream/animal-tycoon');
-  await syncNow(true); bridge.restartToUpdate();
+  if (updateInfo?.state === 'permission') return bridge.restartToUpdate(); // Android: opens the permission screen / installs
+  installUpdate();
 };
+/**
+ * Launch: check for a new version before anything else. If one is coming, the loading screen shows the download and
+ * the app installs and reopens itself. Returns only if the game should start normally (no update, offline, or a failed download).
+ */
+async function updateFirst() {
+  if (!bridge.checkForUpdate) return;
+  setLoad(12, 'Checking for updates…');
+  const up = await Promise.race([bridge.checkForUpdate(), new Promise((r) => setTimeout(() => r(null), 9000))]).catch(() => null);
+  if (!up || up.status === 'none') return;
+  const btn = $('load-action');
+  await new Promise((resolve) => {
+    let stall = null;
+    const keepWaiting = () => { clearTimeout(stall); stall = setTimeout(() => { bootUpdate = null; btn.hidden = true; resolve(); }, 120_000); };
+    bootUpdate = (u) => {
+      keepWaiting();
+      if (u.state === 'downloading') setLoad(Math.max(12, u.percent ?? 12), u.message || `Updating to Animal Tycoon ${u.version || up.version}…${pctText(u)}`);
+      if (u.state === 'installing' || u.state === 'ready') { setLoad(100, `Installing Animal Tycoon ${u.version || up.version} — the game will reopen by itself…`); btn.hidden = true; if (u.state === 'ready') bridge.restartToUpdate(); }
+      if (u.state === 'permission') { $('loadtext').textContent = u.message; btn.textContent = u.button || 'Allow updates'; btn.hidden = false; btn.onclick = () => bridge.restartToUpdate(); }
+      if (u.state === 'error') { clearTimeout(stall); bootUpdate = null; btn.hidden = true; resolve(); } // couldn't update now: play, it retries later
+    };
+    if (up.status === 'manual') { // Mac app that can't replace itself (still in Downloads or a disk image)
+      clearTimeout(stall);
+      $('loadtext').textContent = up.message || `Animal Tycoon ${up.version} is out — please install the new version.`;
+      btn.textContent = 'Download the new version'; btn.hidden = false; btn.onclick = () => bridge.open(up.url || 'https://woof-services.stream/animal-tycoon');
+      return; // stays here: the old version doesn't start
+    }
+    setLoad(15, `Updating to Animal Tycoon ${up.version}…`);
+    keepWaiting();
+  });
+}
 
 // =====================================================================================================
 //  Main loop
@@ -879,6 +927,7 @@ async function boot() {
   setLoad(10, 'Warming up the engine…'); await nextFrame();
   applyQuality(TOUCH ? 'low' : 'high');
   $('hint').textContent = CONTROLS_TEXT;
+  await updateFirst();
   setLoad(25, 'Checking your account…');
   let st = await bridge.auth.status().catch(() => ({ signedIn: false }));
   if (!st.signedIn) { $('loading').classList.remove('show'); const r = await signIn(); st = { signedIn: true, name: r.name }; $('loading').classList.add('show'); }

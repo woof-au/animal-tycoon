@@ -111,26 +111,67 @@ function pingInstall() {
 let updateState = null;
 const IS_MAC = process.platform === 'darwin';
 const macUpdater = IS_MAC ? require('./mac-updater') : null;
-function setupUpdates() {
-  if (!app.isPackaged) return;
-  const send = (u) => { updateState = u; win?.webContents.send('update', u); };
-  let check;
-  if (IS_MAC) check = () => macUpdater.check(send);
-  else {
-    autoUpdater.autoDownload = true;
-    autoUpdater.autoInstallOnAppQuit = true; // a downloaded update installs when the game closes, so the next start is new
-    autoUpdater.on('update-available', (i) => send({ state: 'downloading', version: i.version }));
-    autoUpdater.on('update-downloaded', (i) => send({ state: 'ready', version: i.version }));
-    autoUpdater.on('error', () => { /* offline or GitHub unavailable: try again later */ });
-    check = () => autoUpdater.checkForUpdates().catch(() => {});
-  }
-  setTimeout(check, 8000);
-  setInterval(check, 30 * 60_000);
-}
-ipcMain.on('update:restart', () => {
+// Updates are forced and as fast as possible (owner's rule):
+//  • At launch the game checks before anything else. If there is a new version, the loading screen shows the
+//    download and the app installs it and reopens by itself — nobody plays an old version.
+//  • While playing, new versions are checked every 10 minutes; when one has downloaded the game saves and restarts.
+//  Windows downloads only the changed blocks (blockmap) and installs silently; the Mac swaps in the new app bundle.
+let blocking = false; // true while the loading screen is waiting for a startup update
+let checking = null;
+const send = (u) => { updateState = u; win?.webContents.send('update', u); };
+function installNow() {
   quitting = true;
   if (IS_MAC) { macUpdater.swapAfterQuit(true); app.quit(); } else autoUpdater.quitAndInstall(true, true);
+}
+function onDownloaded(version) {
+  if (blocking) { send({ state: 'installing', version }); setTimeout(installNow, 600); } // nothing to save yet
+  else send({ state: 'ready', version }); // in game: the game saves, then calls update:restart
+}
+function runCheck() {
+  if (!app.isPackaged) return Promise.resolve({ status: 'none' });
+  if (checking) return checking;
+  checking = new Promise((resolve) => {
+    let done = false;
+    const finish = (r) => { if (!done) { done = true; resolve(r); } };
+    if (IS_MAC) {
+      macUpdater.check((u) => {
+        if (u.state === 'downloading') finish({ status: 'updating', version: u.version });
+        if (u.state === 'manual') finish({ status: 'manual', version: u.version, url: u.url, message: u.message });
+        if (u.state === 'ready') return onDownloaded(u.version);
+        if (u.state === 'error') blocking = false;
+        send(u);
+      }).finally(() => finish({ status: 'none' }));
+    } else {
+      const off = () => { autoUpdater.removeListener('update-available', avail); autoUpdater.removeListener('update-not-available', none); autoUpdater.removeListener('error', none); };
+      const avail = (i) => { off(); finish({ status: 'updating', version: i.version }); };
+      const none = () => { off(); finish({ status: 'none' }); };
+      autoUpdater.once('update-available', avail); autoUpdater.once('update-not-available', none); autoUpdater.once('error', none);
+      autoUpdater.checkForUpdates().catch(none);
+    }
+    setTimeout(() => finish({ status: 'none' }), 8000); // slow network: play now, the download carries on in the background
+  }).finally(() => { setTimeout(() => { checking = null; }, 1000); });
+  return checking;
+}
+function setupUpdates() {
+  if (!app.isPackaged) return;
+  if (!IS_MAC) {
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.disableDifferentialDownload = false; // only the changed parts of the installer are downloaded
+    autoUpdater.on('update-available', (i) => send({ state: 'downloading', version: i.version, percent: 0 }));
+    autoUpdater.on('download-progress', (p) => send({ state: 'downloading', version: updateState?.version, percent: Math.round(p.percent || 0) }));
+    autoUpdater.on('update-downloaded', (i) => onDownloaded(i.version));
+    autoUpdater.on('error', () => { if (blocking) { blocking = false; send({ state: 'error' }); } });
+  }
+  setInterval(() => { if (!blocking) runCheck(); }, 10 * 60_000);
+}
+ipcMain.handle('update:check', async () => {
+  const r = await runCheck();
+  blocking = r.status === 'updating';
+  if (blocking && updateState?.state === 'ready') onDownloaded(updateState.version); // already downloaded during the check
+  return r;
 });
+ipcMain.on('update:restart', installNow);
 // Mac: a downloaded update is swapped in when the game quits, so the next start is the new version.
 app.on('will-quit', () => { if (IS_MAC && macUpdater.hasStaged()) macUpdater.swapAfterQuit(false); });
 

@@ -36,6 +36,7 @@
     },
     open: function (url) { return call('open', url); },
     copy: function (text) { return call('copy', text); },
+    checkForUpdate: function () { return call('update.check'); },
     onUpdate: function (cb) { listeners.update.push(cb); N.ready(); },
     restartToUpdate: function () { call('update.install'); },
     onQuit: function (cb) { listeners.quit.push(cb); },

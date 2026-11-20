@@ -32,13 +32,15 @@ function canSelfUpdate() {
   try { fs.accessSync(path.dirname(b), fs.constants.W_OK); fs.accessSync(b, fs.constants.W_OK); return true; } catch { return false; }
 }
 
-async function download(url, dest, size, sha512) {
+async function download(url, dest, size, sha512, onProgress = () => {}) {
   const r = await fetch(url, { headers: { 'User-Agent': `AnimalTycoon/${app.getVersion()} (macOS)` }, redirect: 'follow' });
   if (!r.ok || !r.body) throw new Error(`HTTP ${r.status}`);
   const hash = crypto.createHash('sha512'), out = fs.createWriteStream(dest);
-  let got = 0;
+  let got = 0, shown = -1;
   for await (const chunk of r.body) {
     got += chunk.length;
+    const pct = Math.floor((got / size) * 100);
+    if (pct !== shown) { shown = pct; onProgress(pct); }
     if (got > size) throw new Error('Download too large');
     hash.update(chunk);
     if (!out.write(chunk)) await new Promise((res) => out.once('drain', res));
@@ -62,13 +64,15 @@ async function check(send) {
       return;
     }
     if (!/^[\w.-]+\.zip$/.test(info.url) || info.size <= 0 || info.size > 800 * 1048576) return;
-    send({ state: 'downloading', version: info.version });
+    send({ state: 'downloading', version: info.version, percent: 0 });
     const b = bundle();
     work = path.join(path.dirname(b), '.animal-tycoon-update');
     fs.rmSync(work, { recursive: true, force: true });
     fs.mkdirSync(work);
     const zip = path.join(work, 'update.zip');
-    await download(`${RELEASES}/download/v${info.version}/${info.url}`, zip, info.size, info.sha512);
+    await download(`${RELEASES}/download/v${info.version}/${info.url}`, zip, info.size, info.sha512,
+      (percent) => send({ state: 'downloading', version: info.version, percent }));
+    send({ state: 'downloading', version: info.version, percent: 100, message: `Installing Animal Tycoon ${info.version}…` });
     const dest = path.join(work, 'new');
     await run('/usr/bin/ditto', ['-x', '-k', zip, dest]);
     fs.rmSync(zip, { force: true });
@@ -81,7 +85,7 @@ async function check(send) {
     staged = { app: newApp, work, version: info.version };
     send({ state: 'ready', version: info.version });
   } catch {
-    if (work) fs.rmSync(work, { recursive: true, force: true });
+    if (work) { fs.rmSync(work, { recursive: true, force: true }); send({ state: 'error' }); }
   } finally { busy = false; }
 }
 

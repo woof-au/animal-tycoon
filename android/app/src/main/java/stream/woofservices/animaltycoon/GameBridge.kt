@@ -84,14 +84,34 @@ class GameBridge(private val activity: MainActivity) {
             activity.runOnUiThread { (activity.getSystemService(ClipboardManager::class.java))?.setPrimaryClip(ClipData.newPlainText("Animal Tycoon invite", text)) }
             true
         }
-        "update.install" -> {
-            activity.runOnUiThread {
-                Updater.install(activity)?.let { msg -> activity.emit("update", JSONObject().put("state", "ready").put("message", msg).put("button", "Install")) }
+        // Forced update at launch: the loading screen waits while the new version downloads, then it installs.
+        "update.check" -> {
+            val a = Updater.check()
+            if (a == null) JSONObject().put("status", "none")
+            else {
+                startupUpdating = true
+                pool.execute {
+                    if (Updater.download(ctx, a) { activity.emit("update", it) }) activity.runOnUiThread { installOrAsk() }
+                    else { startupUpdating = false; activity.emit("update", JSONObject().put("state", "error")) }
+                }
+                JSONObject().put("status", "updating").put("version", a.version)
             }
-            null
         }
+        "update.install" -> { activity.runOnUiThread { installOrAsk() }; null }
         else -> throw IllegalArgumentException("Unknown request")
     }
+
+    @Volatile private var startupUpdating = false
+
+    /** Hand the downloaded update to Android; if Android first needs the one-time permission, tell the game why. */
+    fun installOrAsk() {
+        val msg = Updater.install(activity)
+        if (msg == null) activity.emit("update", JSONObject().put("state", "installing").put("version", Updater.state?.optString("version") ?: ""))
+        else activity.emit("update", JSONObject().put("state", "permission").put("message", msg).put("button", "Allow updates"))
+    }
+
+    /** Back from Android's permission screen: carry on installing a waiting update. */
+    fun onResume() { if (Updater.hasStaged() && (startupUpdating || Updater.state != null)) installOrAsk() }
 
     private fun waitForApproval(): JSONObject {
         val token = pollToken ?: return JSONObject().put("status", "expired")
@@ -125,5 +145,12 @@ class GameBridge(private val activity: MainActivity) {
         }
     }
 
-    fun checkForUpdate() { pool.execute { Updater.checkAndDownload(ctx) { activity.emit("update", it) } } }
+    /** While playing (every 10 minutes): download a new version; the game then saves and asks to install it. */
+    fun checkForUpdate() {
+        if (startupUpdating) return
+        pool.execute {
+            val a = Updater.check() ?: return@execute
+            if (Updater.download(ctx, a) { activity.emit("update", it) }) activity.emit("update", JSONObject().put("state", "ready").put("version", a.version))
+        }
+    }
 }
