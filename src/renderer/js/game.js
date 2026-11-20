@@ -28,10 +28,14 @@ const TIPS = ['Tip: the adoption desk is usually the bottleneck — hire clerks 
 //  Renderer, camera, lights
 // =====================================================================================================
 const canvas = $('scene');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+// Low resource use: the normal (not "high-performance") GPU so laptops stay on their power-saving graphics, no
+// multisampling on phones, and shadows only for the scenery, drawn once and refreshed when something changes.
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: !TOUCH, powerPreference: 'default', stencil: false });
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = TOUCH ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+renderer.shadowMap.autoUpdate = false;
+const refreshShadows = () => { renderer.shadowMap.needsUpdate = true; };
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.06;
 const scene = new THREE.Scene();
@@ -66,10 +70,16 @@ const skyMat = new THREE.ShaderMaterial({
 });
 scene.add(new THREE.Mesh(new THREE.SphereGeometry(400, 24, 12), skyMat));
 
+// High: sharp on high-DPI screens (capped at 1.5×), 60 fps. Fast: native 1×, 30 fps, smaller shadow map, no tree sway.
+let quality = 'high', frameMs = 1000 / 60;
 function applyQuality(q) {
-  renderer.setPixelRatio(q === 'high' ? Math.min(devicePixelRatio, 2) : 1);
-  sun.shadow.mapSize.set(q === 'high' ? 4096 : 1536, q === 'high' ? 4096 : 1536);
+  quality = q === 'low' ? 'low' : 'high';
+  renderer.setPixelRatio(quality === 'high' ? Math.min(devicePixelRatio, 1.5) : 1);
+  const size = quality === 'high' ? 2048 : 1024;
+  sun.shadow.mapSize.set(size, size);
   if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
+  frameMs = 1000 / (quality === 'high' ? 60 : 30);
+  refreshShadows();
 }
 
 // =====================================================================================================
@@ -114,6 +124,7 @@ function incomeRate() {
 // =====================================================================================================
 const fx = [];
 function floatText(text, pos, color = '#2fbf71', size = 0.9, life = 1.4) {
+  if (fx.length > 24) return; // each label is a small texture: cap how many exist at once
   const s = textSprite(text, size, { size: 64, color, stroke: '#ffffff' });
   s.position.copy(pos); scene.add(s); fx.push({ s, life, t: 0, vy: 1.4 });
 }
@@ -426,6 +437,7 @@ function loadWorld(id) {
   closePanel(); refreshUI(true);
 }
 function updateSlots() {
+  refreshShadows();
   const n = val('parking', 'slots');
   for (let i = 0; i < 8; i++) {
     world.slotStops[i].material = mat(i < n ? '#f0c34a' : '#9aa0a8');
@@ -469,7 +481,7 @@ function unlock(k) {
   world.setLocked(k, false);
   if (k === 'penB') pens.filter((p) => p.key === 'penB').forEach((p) => { penAnimal(p, true); penAnimal(p, true); });
   floatText(`${CFG[k].name} open!`, world.anchors[k].clone().setY(5), '#9c6ade', 1.1);
-  confetti(world.anchors[k]); refreshUI(true); checkComplete(); syncNow();
+  confetti(world.anchors[k]); refreshShadows(); refreshUI(true); checkComplete(); syncNow();
 }
 function checkComplete() {
   if (ws.done || progress() < 1) return;
@@ -763,9 +775,15 @@ $('update-now').onclick = async () => {
 const clock = new THREE.Clock(); let uiT = 0, syncT = 0;
 runtime.speed = Number(new URLSearchParams(location.search).get('speed')) || 1;
 const autoBuy = isDev && new URLSearchParams(location.search).get('auto') === '1';
-function frame() {
+let lastFrame = 0, shadowT = 0;
+function frame(now = performance.now()) {
   requestAnimationFrame(frame);
+  // Frame cap: 60 fps on High, 30 on Fast, 20 while the window is in the background (saves GPU, CPU and battery).
+  const budget = document.hasFocus() ? frameMs : 1000 / 20;
+  if (now - lastFrame < budget - 2) return;
+  lastFrame = now;
   const real = Math.min(clock.getDelta(), 0.05);
+  shadowT += real; if (shadowT > 6) { shadowT = 0; refreshShadows(); } // trees sway a little: refresh their shadows now and then
   if (ws) {
     const steps = Math.ceil(runtime.speed), dt = real * runtime.speed / steps;
     for (let i = 0; i < steps; i++) tick(dt);
@@ -773,7 +791,7 @@ function frame() {
     uiT += real; if (uiT > 0.2) { uiT = 0; refreshUI(); }
     syncT += real; if (syncT > 120) { syncT = 0; syncNow(); }
     updateCameraKeys(real); positionTutorial();
-    world?.update(real, runtime.time);
+    world?.update(real, runtime.time, quality === 'high');
   }
   controls.update();
   // Keep the view over the shelter (touch panning and mouse panning can otherwise drift off the map).

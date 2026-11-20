@@ -43,6 +43,8 @@ function noise(t, dur, vol, hp = 6000) {
 let melody = 4;
 function schedule() {
   const s = song, beat = 60 / s.bpm / 2; // eighth notes
+  // Music muted (or the game in the background): create no sound nodes at all, just keep time.
+  if (musicVol <= 0 || ctx.state !== 'running') { nextTime = Math.max(nextTime, ctx.currentTime + 0.1); return; }
   while (nextTime < ctx.currentTime + 0.25) {
     const bar = Math.floor(step / 8) % s.prog.length, pos = step % 8, chord = s.prog[bar];
     const t = nextTime + (pos % 2 ? s.swing * beat : 0);
@@ -71,7 +73,7 @@ export const audio = {
     song = SONGS[world] || SONGS[1];
     if (timer) return;
     nextTime = ctx.currentTime + 0.1;
-    timer = setInterval(schedule, 60);
+    timer = setInterval(schedule, 100); // schedules 250 ms ahead, so a 100 ms tick is plenty
   },
   setWorld(world) { song = SONGS[world] || SONGS[1]; },
   stop() { clearInterval(timer); timer = null; },

@@ -14,7 +14,9 @@ export function mat(color, opts = {}) {
   return matCache.get(key);
 }
 const geoCache = new Map();
-const cached = (key, make) => { if (!geoCache.has(key)) geoCache.set(key, make()); return geoCache.get(key); };
+const cached = (key, make) => { if (!geoCache.has(key)) { const g = make(); g.userData.cached = true; geoCache.set(key, g); } return geoCache.get(key); };
+/** Characters and cars use the soft blob under them instead of real shadows: far fewer draw calls per frame. */
+const noShadows = (g) => { g.traverse((o) => { if (o.isMesh) o.castShadow = false; }); return g; };
 export const rbox = (w, h, d, r = 0.08) => cached(`r${w}|${h}|${d}|${r}`, () => new RoundedBoxGeometry(w, h, d, 2, Math.max(0.001, Math.min(r, Math.min(w, h, d) / 2 - 0.003))));
 export const box = (w, h, d) => cached(`b${w}|${h}|${d}`, () => new THREE.BoxGeometry(w, h, d));
 export const sphere = (r, seg = 14) => cached(`s${r}|${seg}`, () => new THREE.SphereGeometry(r, seg, Math.max(6, Math.round(seg * 0.75))));
@@ -101,7 +103,7 @@ export function makePerson({ shirt = pick(SHIRT), pants = pick(PANTS), skin = pi
   body.add(legL, legR, armL, armR, torso, head);
   g.add(blob(0.95));
   g.userData = { legL, legR, armL, armR, head, torso, phase: rand(0, 6) };
-  return g;
+  return noShadows(g);
 }
 export function animatePerson(g, t, moving, working = false) {
   const u = g.userData, s = moving ? Math.sin(t * 9 + u.phase) : 0;
@@ -174,7 +176,7 @@ export function makeAnimal(kind = 'dog', size = 1) {
   b.add(head, tail);
   g.add(blob(kind === 'pony' ? 1.6 : kind === 'bunny' ? 0.6 : 0.9 * (kind === 'cat' ? 0.8 : 1)));
   g.userData = { kind, legs, head, tail, torso, ears, phase: rand(0, 6), baseY: torso.position.y };
-  return g;
+  return noShadows(g);
 }
 export function animateAnimal(g, t, moving) {
   const u = g.userData, ph = u.phase;
@@ -218,7 +220,7 @@ export function makeCar(color = pick(CAR_COLORS), gold = false) {
   g.add(mesh(rbox(0.4, 0.14, 0.06, 0.03), '#ff4d4d', -0.55, 0.72, -1.86), mesh(rbox(0.4, 0.14, 0.06, 0.03), '#ff4d4d', 0.55, 0.72, -1.86));
   g.add(blob(3.4, 0.28)); g.children.at(-1).scale.set(2.2, 4.2, 1);
   g.userData = { wheels };
-  return g;
+  return noShadows(g);
 }
 
 // ---------------------------------------------------------------------------------------------------- scenery

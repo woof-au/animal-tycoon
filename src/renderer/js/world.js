@@ -200,13 +200,28 @@ export function buildWorld(scene, th) {
 
   const anchors = { parking: V(-18.5, -10, 4.2), penA: V(-0.7, -7.5, 4.3), penB: V(8.1, -7.5, 4.3), desk: V(6.2, 2, 3.8), shop: V(-19.5, 6.2, 5.2), office: V(O.x, O.z, 4.6) };
 
+  // Performance: almost all scenery never moves, so compute its matrices once instead of every frame.
+  // Only tree crowns (sway), clouds and the billboard (grows with ads) keep updating.
+  const dynamic = new Set([billboard, ...clouds.map((c) => c.c), ...swayers.map((s) => s.userData.crown)]);
+  g.traverse((o) => { if (dynamic.has(o)) return; o.updateMatrix(); o.matrixAutoUpdate = false; });
+
+  let swayT = 0;
   return {
     group: g, clickables, anchors, slotStops, parkSign, billboard,
     setLocked(key, locked) { if (key === 'penB') penBLock.visible = locked; if (key === 'shop') shopLock.visible = locked; },
-    update(dt, t) {
-      for (const s of swayers) s.userData.crown.rotation.z = Math.sin(t * 1.3 + s.userData.phase) * 0.035;
-      for (const c of clouds) { c.c.position.x += c.v * dt; if (c.c.position.x > 110) c.c.position.x = -110; }
+    /** full = false (Fast graphics): trees stand still and clouds move 4× less often. */
+    update(dt, t, full = true) {
+      if (full) for (const s of swayers) s.userData.crown.rotation.z = Math.sin(t * 1.3 + s.userData.phase) * 0.035;
+      swayT += dt;
+      if (full || swayT > 0.25) { for (const c of clouds) { c.c.position.x += c.v * swayT; if (c.c.position.x > 110) c.c.position.x = -110; } swayT = 0; }
     },
-    dispose() { scene.remove(g); g.traverse((o) => { if (o.material?.map && o.material.map !== null && o.material.map.isCanvasTexture) o.material.map.dispose(); }); },
+    // Frees GPU memory for this world's one-off textures and geometries (shared cached ones are kept for the next world).
+    dispose() {
+      scene.remove(g);
+      g.traverse((o) => {
+        if (o.material?.map?.isCanvasTexture) o.material.map.dispose();
+        if (o.geometry && !o.geometry.userData?.cached) o.geometry.dispose();
+      });
+    },
   };
 }

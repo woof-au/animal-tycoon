@@ -13,6 +13,10 @@ const APP_ID = 'tycoon';
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.json': 'application/json', '.svg': 'image/svg+xml', '.woff2': 'font/woff2' };
 
 app.setAppUserModelId('stream.woof-services.animaltycoon');
+// Lighter Chromium: no spell-check/autofill/translate/media-session services a game doesn't use, and prefer the
+// laptop's power-saving GPU.
+app.commandLine.appendSwitch('disable-features', 'SpareRendererForSitePerProcess,Translate,AutofillServerCommunication,MediaSessionService,HardwareMediaKeyHandling');
+app.commandLine.appendSwitch('force_low_power_gpu');
 protocol.registerSchemesAsPrivileged([{ scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
 if (!app.requestSingleInstanceLock()) { app.quit(); }
 
