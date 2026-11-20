@@ -1,27 +1,135 @@
 name: Build & Release
+# One tag builds the same game for Windows, Mac and Android and publishes all three in one GitHub release:
+#   bump "version" in package.json → commit → git tag vX.Y.Z → git push origin vX.Y.Z
+# Installed games update themselves from that release (Windows/Mac in the background, Android with one tap).
+# "Run workflow" (no tag) builds everything as a test without publishing.
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
-permissions:
-  contents: write
+
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: npm ci --no-audit --no-fund
+      - name: The tag must match package.json (the updaters rely on it)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          v=$(node -p "require('./package.json').version")
+          [ "v$v" = "${GITHUB_REF_NAME}" ] || { echo "Tag ${GITHUB_REF_NAME} != package.json v$v"; exit 1; }
+      - run: npm test
+
   windows:
+    needs: test
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - run: npm install --no-audit --no-fund
-      - run: npm test
-      - run: npm run release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Check the release has the installer and update files
-        shell: pwsh
+      - run: npm ci --no-audit --no-fund
+      - run: npm run dist:win
+      - shell: pwsh
         run: |
           Get-ChildItem dist -File | Select-Object Name, Length | Format-Table
-          if (-not (Test-Path dist/Animal-Tycoon-Setup.exe)) { throw 'installer missing' }
-          if (-not (Test-Path dist/latest.yml)) { throw 'latest.yml missing' }
+          foreach ($f in 'Animal-Tycoon-Setup.exe', 'latest.yml') { if (-not (Test-Path "dist/$f")) { throw "$f missing" } }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-windows
+          path: |
+            dist/Animal-Tycoon-Setup.exe
+            dist/Animal-Tycoon-Setup.exe.blockmap
+            dist/latest.yml
+
+  mac:
+    needs: test
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: npm ci --no-audit --no-fund
+      - run: npm run dist:mac
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - run: |
+          ls -la dist
+          for f in Animal-Tycoon-Mac.dmg Animal-Tycoon-Mac.zip latest-mac.yml; do [ -f "dist/$f" ] || { echo "$f missing"; exit 1; }; done
+          cat dist/latest-mac.yml
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-mac
+          path: |
+            dist/Animal-Tycoon-Mac.dmg
+            dist/Animal-Tycoon-Mac.zip
+            dist/*.blockmap
+            dist/latest-mac.yml
+
+  android:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: npm ci --no-audit --no-fund
+      - run: npm run vendor
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: 8.11.1
+      - name: Build the signed APK
+        working-directory: android
+        env:
+          KEYSTORE_B64: ${{ secrets.WOOF_ANDROID_KEYSTORE_B64 }}
+          WOOF_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.WOOF_ANDROID_KEYSTORE_PASSWORD }}
+          WOOF_ANDROID_KEY_ALIAS: ${{ secrets.WOOF_ANDROID_KEY_ALIAS }}
+          WOOF_ANDROID_KEY_PASSWORD: ${{ secrets.WOOF_ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          [ -n "$KEYSTORE_B64" ] || { echo "Missing the WOOF_ANDROID_KEYSTORE_B64 secret"; exit 1; }
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/woof-android.p12"
+          export WOOF_ANDROID_KEYSTORE="$RUNNER_TEMP/woof-android.p12"
+          gradle --no-daemon assembleRelease
+          rm -f "$RUNNER_TEMP/woof-android.p12"
+          mkdir -p ../dist-android
+          cp app/build/outputs/apk/release/app-release.apk ../dist-android/Animal-Tycoon-Android.apk
+          cd ../dist-android && sha256sum Animal-Tycoon-Android.apk > Animal-Tycoon-Android.apk.sha256 && cat *.sha256 && ls -la
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-android
+          path: dist-android/*
+
+  release:
+    needs: [windows, mac, android]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+      - run: ls -la artifacts
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: artifacts/*
+          tag_name: ${{ github.ref_name }}
+          name: Animal Tycoon ${{ github.ref_name }}
+          generate_release_notes: true
+          draft: false
+          make_latest: true
