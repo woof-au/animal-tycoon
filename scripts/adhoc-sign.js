@@ -5,7 +5,8 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 exports.default = async function adhocSign(context) {
-  if (context.electronPlatformName !== 'darwin' || !/universal/i.test(context.appOutDir)) return;
+  // The per-architecture builds live in mac-universal-x64-temp / mac-universal-arm64-temp; the merged app in mac-universal.
+  if (context.electronPlatformName !== 'darwin' || path.basename(context.appOutDir) !== 'mac-universal') return;
   const app = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`);
   execFileSync('codesign', ['--force', '--deep', '--sign', '-', app], { stdio: 'inherit' });
   execFileSync('codesign', ['--verify', '--deep', '--strict', app], { stdio: 'inherit' });
