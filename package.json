@@ -49,7 +49,6 @@
       "category": "public.app-category.simulation-games",
       "target": [{ "target": "dmg", "arch": ["universal"] }, { "target": "zip", "arch": ["universal"] }],
       "icon": "build/icon.png",
-      "identity": null,
       "darkModeSupport": true,
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
