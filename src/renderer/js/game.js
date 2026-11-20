@@ -70,6 +70,19 @@ function defaultSave() {
   const w = WORLDS[0];
   return { v: 1, current: 1, worlds: { 1: newWorldState(w, economy(w, fmt)) }, tutorialDone: false, settings: { music: 0.5, sfx: 0.7, quality: 'high' }, playSec: 0, created: Date.now() };
 }
+/** Makes any cloud save safe to load: fills missing parts and keeps worlds in order (a world needs the one before it done). */
+function normalizeSave(s) {
+  const d = defaultSave();
+  if (!s || typeof s !== 'object' || !s.v) return d;
+  s.worlds = s.worlds && typeof s.worlds === 'object' ? s.worlds : {};
+  s.settings = { ...d.settings, ...(s.settings && typeof s.settings === 'object' ? s.settings : {}) };
+  const ok = (n) => Number.isInteger(n) && n >= 1 && n <= WORLDS.length;
+  if (!ok(s.current)) s.current = 1;
+  while (s.current > 1 && !s.worlds[s.current - 1]?.done) s.current--;
+  if (!ok(s.viewing) || s.viewing > s.current) s.viewing = s.current;
+  if (!Number.isFinite(s.playSec)) s.playSec = 0;
+  return s;
+}
 const val = (k, t) => CFG[k].tracks[t].val(ws.lv[k][t]);
 const score = (s) => Object.values(s?.worlds || {}).reduce((a, w) => a + (w.earned || 0), 0) + (s?.current || 0) * 1e15;
 function markDirty() { dirty = true; }
@@ -378,8 +391,17 @@ function clearWorld() {
 function loadWorld(id) {
   clearWorld();
   W = WORLDS[id - 1]; CFG = economy(W, fmt);
-  save.worlds[id] ||= newWorldState(W, CFG); ws = save.worlds[id];
-  for (const k of ORDER) for (const t in CFG[k].tracks) ws.lv[k][t] = Math.min(ws.lv[k][t] ?? 1, CFG[k].tracks[t].max);
+  // Repair/upgrade the saved world so older or partial saves (and saves from future versions) always load.
+  const fresh = newWorldState(W, CFG), w0 = save.worlds[id] && typeof save.worlds[id] === 'object' ? save.worlds[id] : fresh;
+  if (!Number.isFinite(w0.money)) w0.money = fresh.money;
+  if (!Number.isFinite(w0.earned)) w0.earned = 0;
+  w0.unlocked = { ...fresh.unlocked, ...(w0.unlocked || {}) };
+  w0.lv = w0.lv && typeof w0.lv === 'object' ? w0.lv : {};
+  for (const k of ORDER) {
+    w0.lv[k] = w0.lv[k] && typeof w0.lv[k] === 'object' ? w0.lv[k] : {};
+    for (const t in CFG[k].tracks) { const l = Math.floor(Number(w0.lv[k][t])); w0.lv[k][t] = Math.min(Math.max(1, Number.isFinite(l) ? l : 1), CFG[k].tracks[t].max); }
+  }
+  w0.done = !!w0.done; save.worlds[id] = w0; ws = w0;
   scene.fog = new THREE.Fog(W.fog, 110, 240);
   skyMat.uniforms.top.value.set(W.sky).offsetHSL(0, 0.1, -0.12); skyMat.uniforms.bottom.value.set(W.fog);
   world = buildWorld(scene, W);
@@ -659,7 +681,7 @@ async function syncNow(final = false) {
     else if (r?.conflict) {
       // Another PC saved newer progress. Keep whichever save went further.
       revision = r.revision;
-      if (r.save && score(r.save) > score(save)) { save = r.save; loadWorld(save.viewing || save.current); toast('Loaded your newer progress from another PC'); }
+      if (r.save && score(r.save) > score(save)) { save = normalizeSave(r.save); loadWorld(save.viewing || save.current); toast('Loaded your newer progress from another PC'); }
       else { syncing = false; return syncNow(final); }
     }
   } catch { /* offline: try again next time */ }
@@ -808,7 +830,7 @@ async function boot() {
   if (!session) { setLoad(45, 'Could not reach Woof Services. Retrying…'); setTimeout(() => location.reload(), 4000); return; }
   signedName = session.name || st.name || ''; $('who').textContent = `👤 ${signedName || 'Signed in'}`;
   inviteInfo = session.invite || null; revision = session.revision || 0;
-  save = session.save && session.save.v ? session.save : defaultSave();
+  save = normalizeSave(session.save);
   save.settings ||= { music: 0.5, sfx: 0.7, quality: 'high' };
   if (!session.save) dirty = true;
   applyQuality(save.settings.quality); audio.setMusic(save.settings.music); audio.setSfx(save.settings.sfx);
