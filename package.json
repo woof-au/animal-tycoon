@@ -1,0 +1,49 @@
+{
+  "name": "animal-tycoon",
+  "productName": "Animal Tycoon",
+  "version": "1.0.0",
+  "description": "Build the happiest animal shelter in town. A free 3D tycoon game by Woof Services.",
+  "author": "Woof Services",
+  "homepage": "https://woof-services.stream/animal-tycoon",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "src/main.js",
+  "scripts": {
+    "vendor": "node scripts/vendor.js",
+    "start": "npm run vendor && electron .",
+    "test": "node --test test/economy.test.mjs",
+    "dist": "npm run vendor && electron-builder --win --publish never",
+    "release": "npm run vendor && electron-builder --win --publish always"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "three": "0.170.0"
+  },
+  "build": {
+    "appId": "stream.woof-services.animaltycoon",
+    "productName": "Animal Tycoon",
+    "copyright": "© Woof Services",
+    "files": ["src/**/*", "build/icon.png", "package.json"],
+    "directories": { "output": "dist", "buildResources": "build" },
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "Animal Tycoon",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "Animal-Tycoon-Setup.${ext}"
+    },
+    "publish": [{ "provider": "github", "owner": "woof-au", "repo": "animal-tycoon", "releaseType": "release" }]
+  }
+}

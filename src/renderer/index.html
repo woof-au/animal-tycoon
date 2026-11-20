@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https:; font-src 'self' data:">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Animal Tycoon</title>
+<link rel="stylesheet" href="css/app.css">
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js", "three/addons/": "./vendor/addons/" } }
+</script>
+</head>
+<body>
+<canvas id="scene"></canvas>
+
+<!-- Loading screen -->
+<section id="loading" class="screen show">
+  <div class="load-art"><div class="sun"></div><div class="hill h1"></div><div class="hill h2"></div><div class="paw-run">🐾</div></div>
+  <div class="load-card">
+    <div class="logo"><span class="logo-badge">🐾</span><div><b>Animal Tycoon</b><small>by Woof Services</small></div></div>
+    <div class="load-bar"><i id="loadbar"></i></div>
+    <p id="loadtext">Getting the animals ready…</p>
+    <p class="tip" id="loadtip"></p>
+  </div>
+</section>
+
+<!-- Sign-in screen -->
+<section id="login" class="screen">
+  <div class="login-card">
+    <div class="logo big"><span class="logo-badge">🐾</span><div><b>Animal Tycoon</b><small>Sign in with your free Woof Services account</small></div></div>
+    <div id="login-start">
+      <p>Your progress is saved to your account, so you can carry on from any PC.</p>
+      <button class="btn primary big" id="signin">Sign in with Woof Services</button>
+      <p class="small">Opens woof-services.stream in your browser. Already signed in there? Just click <b>Approve</b>.</p>
+    </div>
+    <div id="login-wait" hidden>
+      <p>Approve this code in your browser:</p>
+      <div class="code" id="login-code">----</div>
+      <p class="small waiting"><span class="spin"></span> Waiting for approval…</p>
+      <div class="row"><button class="btn ghost" id="login-open">Open the page again</button><button class="btn ghost" id="login-cancel">Cancel</button></div>
+    </div>
+    <p class="err" id="login-err" hidden></p>
+  </div>
+</section>
+
+<!-- In-game interface -->
+<div id="hud" hidden>
+  <div id="worldcard">
+    <div class="wc-top"><span id="wc-icon">🐶</span><div><small id="wc-num">World 1</small><b id="wc-name">Dog Pound</b></div></div>
+    <div class="bar"><i id="pbar"></i></div>
+    <div class="wc-foot"><span id="ptext">0% complete</span></div>
+    <button class="btn travel" id="travel" hidden>🌍 Travel to the next world</button>
+  </div>
+  <div id="money"><span class="coin">$</span><span id="cash">$0</span><span id="rate"></span></div>
+  <div id="topbtns">
+    <button class="tb" id="b-invite" title="Invite friends">🎁<span>Invite</span></button>
+    <button class="tb" id="b-worlds" title="Worlds">🌍<span>Worlds</span></button>
+    <button class="tb" id="b-settings" title="Settings">⚙️<span>Settings</span></button>
+    <div class="who" id="who"></div>
+  </div>
+  <div id="hint">WASD / arrows to move · Q / E to turn · scroll to zoom · click a building to upgrade it</div>
+</div>
+
+<div id="panel"><button class="x" id="px" aria-label="Close">✕</button><div id="pbody"></div></div>
+<div id="modal"><div class="modal-card"><button class="x" id="mx" aria-label="Close">✕</button><div id="mbody"></div></div></div>
+<div id="tut"><div class="tut-bubble"><div id="tut-text"></div><div class="tut-row"><span id="tut-step"></span><button class="btn primary" id="tut-next">Next</button></div></div><div class="tut-arrow" id="tut-arrow">⬇</div></div>
+<div id="toast"></div>
+<div id="update" hidden><span id="update-text"></span><button class="btn primary" id="update-now" hidden>Restart now</button></div>
+<div id="fade"></div>
+
+<script type="module" src="js/game.js"></script>
+</body>
+</html>
