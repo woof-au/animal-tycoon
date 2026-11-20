@@ -1,7 +1,7 @@
 {
   "name": "animal-tycoon",
   "productName": "Animal Tycoon",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Build the happiest animal shelter in town. A free 3D tycoon game by Woof Services.",
   "author": "Woof Services",
   "homepage": "https://woof-services.stream/animal-tycoon",
@@ -11,9 +11,9 @@
   "scripts": {
     "vendor": "node scripts/vendor.js",
     "start": "npm run vendor && electron .",
-    "test": "node --test test/economy.test.mjs",
-    "dist": "npm run vendor && electron-builder --win --publish never",
-    "release": "npm run vendor && electron-builder --win --publish always"
+    "test": "node --test test/economy.test.mjs test/mac-updater.test.js",
+    "dist:win": "npm run vendor && electron-builder --win --publish never",
+    "dist:mac": "npm run vendor && electron-builder --mac --publish never"
   },
   "dependencies": {
     "electron-updater": "^6.3.9"
@@ -28,6 +28,7 @@
     "productName": "Animal Tycoon",
     "copyright": "© Woof Services",
     "files": ["src/**/*", "build/icon.png", "package.json"],
+    "afterPack": "scripts/adhoc-sign.js",
     "directories": { "output": "dist", "buildResources": "build" },
     "win": {
       "target": [{ "target": "nsis", "arch": ["x64"] }],
@@ -44,6 +45,17 @@
       "deleteAppDataOnUninstall": false,
       "artifactName": "Animal-Tycoon-Setup.${ext}"
     },
+    "mac": {
+      "category": "public.app-category.simulation-games",
+      "target": [{ "target": "dmg", "arch": ["universal"] }, { "target": "zip", "arch": ["universal"] }],
+      "icon": "build/icon.png",
+      "identity": null,
+      "darkModeSupport": true,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "artifactName": "Animal-Tycoon-Mac.${ext}"
+    },
+    "dmg": { "title": "Animal Tycoon" },
     "publish": [{ "provider": "github", "owner": "woof-au", "repo": "animal-tycoon", "releaseType": "release" }]
   }
 }

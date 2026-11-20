@@ -8,6 +8,12 @@ import { audio, sfx } from './music.js';
 import { bridge, isDev } from './bridge.js';
 
 const $ = (id) => document.getElementById(id);
+// Phones and tablets (Android): touch controls, a compact layout and lighter graphics by default.
+const TOUCH = matchMedia('(pointer: coarse)').matches || !!window.WoofNative;
+if (TOUCH) document.body.classList.add('touch');
+const CONTROLS_TEXT = TOUCH
+  ? 'Drag to move around · pinch to zoom · twist with two fingers to turn · tap a building to upgrade it'
+  : 'WASD / arrows to move · Q / E to turn · scroll to zoom · click a building to upgrade it';
 const fmt = (n) => {
   const a = Math.abs(n);
   if (a >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
@@ -37,7 +43,12 @@ controls.enableDamping = true; controls.dampingFactor = 0.08;
 controls.maxPolarAngle = 1.18; controls.minPolarAngle = 0.42;
 controls.minDistance = 18; controls.maxDistance = 115;
 controls.screenSpacePanning = false;
+// Tall phone screens: start further back so the whole shelter fits.
+if (innerWidth / innerHeight < 1) camera.position.sub(controls.target).multiplyScalar(1.75).add(controls.target);
 controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
+// Touch: one finger slides the view across the ground (like most tycoon games), two fingers pinch-zoom and turn.
+controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
+if (TOUCH) { controls.panSpeed = 1.4; controls.rotateSpeed = 0.8; }
 
 const hemi = new THREE.HemisphereLight('#d6eeff', '#9ccf74', 1.2); scene.add(hemi);
 const sun = new THREE.DirectionalLight('#fff1dc', 2.5);
@@ -68,7 +79,7 @@ let save = null, W = null, CFG = null, ws = null, world = null, revision = 0, di
 const runtime = { time: 0, log: [], playSec: 0, unsyncedMin: 0, panelKey: null, tutorial: null };
 function defaultSave() {
   const w = WORLDS[0];
-  return { v: 1, current: 1, worlds: { 1: newWorldState(w, economy(w, fmt)) }, tutorialDone: false, settings: { music: 0.5, sfx: 0.7, quality: 'high' }, playSec: 0, created: Date.now() };
+  return { v: 1, current: 1, worlds: { 1: newWorldState(w, economy(w, fmt)) }, tutorialDone: false, settings: { music: 0.5, sfx: 0.7, quality: TOUCH ? 'low' : 'high' }, playSec: 0, created: Date.now() };
 }
 /** Makes any cloud save safe to load: fills missing parts and keeps worlds in order (a world needs the one before it done). */
 function normalizeSave(s) {
@@ -565,7 +576,7 @@ function openSettings() {
     <div class="setting"><span>✨ Graphics</span><div class="seg"><button data-q="high" class="${s.quality === 'high' ? 'on' : ''}">High</button><button data-q="low" class="${s.quality === 'low' ? 'on' : ''}">Fast</button></div></div>
     <div class="setting"><span>🎓 Tutorial</span><button class="btn ghost" id="replay-tut">Play again</button></div>
     <div class="setting"><span>👤 Signed in as <b>${signedName || 'you'}</b></span><button class="btn ghost" id="signout">Sign out</button></div>
-    <p class="small center">Controls: WASD or arrow keys to move · Q / E to turn · scroll or + / − to zoom · drag with the mouse</p>
+    <p class="small center">Controls: ${TOUCH ? CONTROLS_TEXT : 'WASD or arrow keys to move · Q / E to turn · scroll or + / − to zoom · drag with the mouse'}</p>
     <p class="small center" id="ver"></p>`);
   bridge.info().then((i) => { const v = $('ver'); if (v) v.textContent = `Animal Tycoon v${i.version} · progress saves to your Woof Services account`; });
 }
@@ -594,7 +605,9 @@ async function travel(id) {
 // =====================================================================================================
 const TUT = [
   { text: '👋 <b>Welcome to Animal Tycoon!</b> You run an animal shelter: families drive in, meet the animals and take one home. Every adoption earns money to grow your shelter.' },
-  { text: '🎮 <b>Look around:</b> WASD or the arrow keys move the camera, <b>Q / E</b> turn it, and the mouse wheel zooms. You can also drag with the mouse.' },
+  { text: TOUCH
+    ? '🎮 <b>Look around:</b> drag with one finger to move, <b>pinch</b> to zoom and twist two fingers to turn.'
+    : '🎮 <b>Look around:</b> WASD or the arrow keys move the camera, <b>Q / E</b> turn it, and the mouse wheel zooms. You can also drag with the mouse.' },
   { text: '🐶 Families visit the <b>Puppy Kennels</b> first. <b>Click the kennels</b> to see their upgrades.', target: 'penA', wait: 'open:penA' },
   { text: '💰 Buy the <b>Adoption fee</b> upgrade — every family will pay more from now on.', wait: 'buy', panel: true },
   { text: '📋 Families pay at the <b>Adoption Desk</b>. If the line gets too long they leave <b>angry</b> without paying — hire clerks and speed it up!', target: 'desk' },
@@ -613,13 +626,21 @@ function tutorialEvent(ev) { const s = TUT[runtime.tutorial]; if (runtime.tutori
 function positionTutorial() {
   if (runtime.tutorial === null) return;
   const s = TUT[runtime.tutorial], bubble = document.querySelector('.tut-bubble'), arrow = $('tut-arrow');
-  if (s.panel) { bubble.style.left = `${innerWidth - 380 - 360}px`; bubble.style.top = '120px'; arrow.style.display = 'block'; arrow.textContent = '➡'; arrow.style.left = `${innerWidth - 380 - 34}px`; arrow.style.top = '160px'; return; }
+  const bw = bubble.offsetWidth || 330, bh = bubble.offsetHeight || 150, small = innerWidth < 760;
+  if (s.panel) {
+    if (small) { // the panel is a bottom sheet on phones: put the hint above it
+      arrow.style.display = 'none'; bubble.style.left = `${(innerWidth - bw) / 2}px`; bubble.style.top = '8px'; return;
+    }
+    bubble.style.left = `${innerWidth - 380 - bw - 30}px`; bubble.style.top = '120px'; arrow.style.display = 'block'; arrow.textContent = '➡'; arrow.style.left = `${innerWidth - 380 - 34}px`; arrow.style.top = '160px'; return;
+  }
   if (s.target && world) {
     const p = world.anchors[s.target].clone(); p.y += 1.2; p.project(camera);
     const x = (p.x + 1) / 2 * innerWidth, y = (1 - p.y) / 2 * innerHeight;
     arrow.style.display = 'block'; arrow.textContent = '⬇'; arrow.style.left = `${x - 22}px`; arrow.style.top = `${y - 62}px`;
-    bubble.style.left = `${Math.min(innerWidth - 350, Math.max(16, x - 165))}px`; bubble.style.top = `${Math.max(90, y - 230)}px`;
-  } else { arrow.style.display = 'none'; bubble.style.left = `${innerWidth / 2 - 165}px`; bubble.style.top = `${innerHeight / 2 - 120}px`; }
+    bubble.style.left = `${Math.min(innerWidth - bw - 12, Math.max(12, x - bw / 2))}px`;
+    const above = y - bh - 70;
+    bubble.style.top = `${above > 70 ? above : Math.min(innerHeight - bh - 12, y + 20)}px`;
+  } else { arrow.style.display = 'none'; bubble.style.left = `${(innerWidth - bw) / 2}px`; bubble.style.top = `${(innerHeight - bh) / 2}px`; }
 }
 
 // =====================================================================================================
@@ -710,16 +731,31 @@ async function signOut() {
   await syncNow(true); await bridge.auth.signOut(); location.reload();
 }
 bridge.onQuit?.(async () => { await Promise.race([syncNow(true), new Promise((r) => setTimeout(r, 4000))]); bridge.quitReady(); });
+// Minimised / switched away (phones especially): pause the music and save; carry on when the player is back.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { audio.pause?.(); if (save) syncNow(); } else audio.resume();
+});
+// Android back button: close whatever is open first; returns true when it handled the press.
+window.__woofBack = () => {
+  if ($('modal').classList.contains('show')) { closeModal(); return true; }
+  if (runtime.panelKey) { closePanel(); return true; }
+  return false;
+};
 
 // =====================================================================================================
-//  Updates
+//  Updates (Windows/Mac: downloads in the background; Android: downloads, then one tap to install)
 // =====================================================================================================
+let updateInfo = null;
 bridge.onUpdate?.((u) => {
-  const box = $('update');
-  if (u.state === 'downloading') { box.hidden = false; $('update-text').textContent = `⬇ Downloading update ${u.version || ''}…`; $('update-now').hidden = true; }
-  if (u.state === 'ready') { box.hidden = false; $('update-text').textContent = `✨ Update ${u.version || ''} is ready — it installs when you close the game.`; $('update-now').hidden = false; }
+  const box = $('update'); updateInfo = u;
+  if (u.state === 'downloading') { box.hidden = false; $('update-text').textContent = u.message || `⬇ Downloading update ${u.version || ''}…`; $('update-now').hidden = true; }
+  if (u.state === 'ready') { box.hidden = false; $('update-text').textContent = u.message || `✨ Update ${u.version || ''} is ready — it installs when you close the game.`; $('update-now').textContent = u.button || 'Restart now'; $('update-now').hidden = false; }
+  if (u.state === 'manual') { box.hidden = false; $('update-text').textContent = u.message || `✨ Animal Tycoon ${u.version || ''} is available.`; $('update-now').textContent = u.button || 'Download'; $('update-now').hidden = false; }
 });
-$('update-now').onclick = async () => { await syncNow(true); bridge.restartToUpdate(); };
+$('update-now').onclick = async () => {
+  if (updateInfo?.state === 'manual') return bridge.open(updateInfo.url || 'https://woof-services.stream/animal-tycoon');
+  await syncNow(true); bridge.restartToUpdate();
+};
 
 // =====================================================================================================
 //  Main loop
@@ -740,6 +776,9 @@ function frame() {
     world?.update(real, runtime.time);
   }
   controls.update();
+  // Keep the view over the shelter (touch panning and mouse panning can otherwise drift off the map).
+  const t = controls.target, cx = Math.min(BOUNDS.x1, Math.max(BOUNDS.x0, t.x)) - t.x, cz = Math.min(BOUNDS.z1, Math.max(BOUNDS.z0, t.z)) - t.z;
+  if (cx || cz || t.y) { const d = V(cx, cz, -t.y); t.add(d); camera.position.add(d); }
   renderer.render(scene, camera);
 }
 let autoT = 0;
@@ -820,7 +859,8 @@ async function signIn() {
 
 async function boot() {
   setLoad(10, 'Warming up the engine…'); await nextFrame();
-  applyQuality('high');
+  applyQuality(TOUCH ? 'low' : 'high');
+  $('hint').textContent = CONTROLS_TEXT;
   setLoad(25, 'Checking your account…');
   let st = await bridge.auth.status().catch(() => ({ signedIn: false }));
   if (!st.signedIn) { $('loading').classList.remove('show'); const r = await signIn(); st = { signedIn: true, name: r.name }; $('loading').classList.add('show'); }
@@ -831,7 +871,6 @@ async function boot() {
   signedName = session.name || st.name || ''; $('who').textContent = `👤 ${signedName || 'Signed in'}`;
   inviteInfo = session.invite || null; revision = session.revision || 0;
   save = normalizeSave(session.save);
-  save.settings ||= { music: 0.5, sfx: 0.7, quality: 'high' };
   if (!session.save) dirty = true;
   applyQuality(save.settings.quality); audio.setMusic(save.settings.music); audio.setSfx(save.settings.sfx);
   runtime.playSec = save.playSec || 0;

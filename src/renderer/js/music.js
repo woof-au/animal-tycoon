@@ -77,7 +77,8 @@ export const audio = {
   stop() { clearInterval(timer); timer = null; },
   setMusic(v) { musicVol = v; if (musicBus) musicBus.gain.value = v * 0.5; },
   setSfx(v) { sfxVol = v; if (sfxBus) sfxBus.gain.value = v; },
-  resume() { if (ctx && ctx.state === 'suspended') ctx.resume(); },
+  resume() { if (ctx && ctx.state === 'suspended') { ctx.resume(); nextTime = Math.max(nextTime, ctx.currentTime + 0.1); } },
+  pause() { if (ctx && ctx.state === 'running') ctx.suspend(); },
 };
 
 function sfxNote(freq, dur, type, vol, slide = 0, delay = 0) {

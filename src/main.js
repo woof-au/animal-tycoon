@@ -45,7 +45,7 @@ function clearAuth() { try { fs.unlinkSync(path.join(dataDir(), 'auth.bin')); } 
 async function api(pathname, body, timeoutMs = 15000) {
   const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const r = await fetch(SITE + pathname, { method: 'POST', headers: { 'Content-Type': 'application/json', 'User-Agent': `AnimalTycoon/${app.getVersion()} (Windows)` }, body: JSON.stringify(body), signal: ctrl.signal });
+    const r = await fetch(SITE + pathname, { method: 'POST', headers: { 'Content-Type': 'application/json', 'User-Agent': `AnimalTycoon/${app.getVersion()} (${process.platform === 'darwin' ? 'macOS' : 'Windows'})` }, body: JSON.stringify(body), signal: ctrl.signal });
     const d = await r.json().catch(() => ({}));
     return { status: r.status, ...d };
   } finally { clearTimeout(t); }
@@ -54,7 +54,7 @@ const base = () => ({ deviceId: deviceId(), platform: process.platform, appVersi
 const authed = () => { const a = loadAuth(); return a ? { ...base(), token: a.token } : null; };
 
 let link = null; // { pollToken, cancelled }
-ipcMain.handle('info', () => ({ version: app.getVersion(), platform: 'windows', dev: !app.isPackaged }));
+ipcMain.handle('info', () => ({ version: app.getVersion(), platform: process.platform === 'darwin' ? 'mac' : 'windows', dev: !app.isPackaged }));
 ipcMain.handle('auth:status', () => { const a = loadAuth(); return { signedIn: !!a, name: a?.name || null }; });
 ipcMain.handle('auth:start', async () => {
   const r = await api('/api/app/link/start', { ...base(), app: APP_ID });
@@ -105,19 +105,30 @@ function pingInstall() {
 
 // ------------------------------------------------------------------ auto-updates (GitHub releases of woof-au/animal-tycoon)
 let updateState = null;
+const IS_MAC = process.platform === 'darwin';
+const macUpdater = IS_MAC ? require('./mac-updater') : null;
 function setupUpdates() {
   if (!app.isPackaged) return;
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true; // a downloaded update installs when the game closes, so the next start is new
   const send = (u) => { updateState = u; win?.webContents.send('update', u); };
-  autoUpdater.on('update-available', (i) => send({ state: 'downloading', version: i.version }));
-  autoUpdater.on('update-downloaded', (i) => send({ state: 'ready', version: i.version }));
-  autoUpdater.on('error', () => { /* offline or GitHub unavailable: try again later */ });
-  const check = () => autoUpdater.checkForUpdates().catch(() => {});
+  let check;
+  if (IS_MAC) check = () => macUpdater.check(send);
+  else {
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true; // a downloaded update installs when the game closes, so the next start is new
+    autoUpdater.on('update-available', (i) => send({ state: 'downloading', version: i.version }));
+    autoUpdater.on('update-downloaded', (i) => send({ state: 'ready', version: i.version }));
+    autoUpdater.on('error', () => { /* offline or GitHub unavailable: try again later */ });
+    check = () => autoUpdater.checkForUpdates().catch(() => {});
+  }
   setTimeout(check, 8000);
   setInterval(check, 30 * 60_000);
 }
-ipcMain.on('update:restart', () => { quitting = true; autoUpdater.quitAndInstall(true, true); });
+ipcMain.on('update:restart', () => {
+  quitting = true;
+  if (IS_MAC) { macUpdater.swapAfterQuit(true); app.quit(); } else autoUpdater.quitAndInstall(true, true);
+});
+// Mac: a downloaded update is swapped in when the game quits, so the next start is the new version.
+app.on('will-quit', () => { if (IS_MAC && macUpdater.hasStaged()) macUpdater.swapAfterQuit(false); });
 
 // ------------------------------------------------------------------ window
 let win = null, quitting = false;
@@ -155,7 +166,8 @@ function createWindow() {
 
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
 app.whenReady().then(() => {
-  Menu.setApplicationMenu(null);
+  // Windows: no menu bar. Mac: the standard app menu (Quit, Hide…) and Edit menu (copy/paste the invite link).
+  Menu.setApplicationMenu(IS_MAC ? Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }, { role: 'windowMenu' }]) : null);
   protocol.handle('app', (req) => {
     const rel = decodeURIComponent(new URL(req.url).pathname).replace(/^\/+/, '');
     const file = path.normalize(path.join(RENDERER, rel || 'index.html'));
