@@ -1,0 +1,27 @@
+name: Build & Release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npm test
+      - run: npm run release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check the release has the installer and update files
+        shell: pwsh
+        run: |
+          Get-ChildItem dist -File | Select-Object Name, Length | Format-Table
+          if (-not (Test-Path dist/Animal-Tycoon-Setup.exe)) { throw 'installer missing' }
+          if (-not (Test-Path dist/latest.yml)) { throw 'latest.yml missing' }
